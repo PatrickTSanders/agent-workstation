@@ -1,5 +1,11 @@
 #!/bin/bash
 set -euo pipefail
+
+# Ensure we are running as root
+if [ "$(id -u)" -ne 0 ]; then
+  exec sudo bash "$0" "$@"
+fi
+
 exec > >(tee /var/log/bootstrap.log) 2>&1
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
