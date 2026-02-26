@@ -48,10 +48,10 @@ On subsequent boots (hibernate resume or normal start) it is mounted from `/etc/
 ```bash
 chmod +x *.sh
 
-# Deploy (waits for bootstrap to complete via cfn-signal — ~5-10 min)
+# Deploy
 ./deploy.sh
 
-# Connect
+# Connect (stack completes immediately — no bootstrap wait)
 ./connect-ssm.sh
 
 # Hibernate at end of session
@@ -63,6 +63,51 @@ chmod +x *.sh
 # Check instance state
 ./status.sh
 ```
+
+## First Boot — Manual Bootstrap
+
+After deploying for the first time, SSM into the instance and run `bootstrap.sh`.
+The script installs all tooling and sets up the data volume.
+
+**1. Identify your data volume**
+
+```bash
+lsblk
+```
+
+You'll see two disks. The root volume (`nvme0n1`) is mounted at `/`. The second
+disk (e.g. `nvme1n1`) is the data volume — unformatted and unmounted on first boot.
+`bootstrap.sh` auto-detects and formats it; you don't need to know the device name.
+
+**2. Run the bootstrap script**
+
+```bash
+sudo bash <(curl -fsSL https://raw.githubusercontent.com/PatrickTSanders/agent-workstation/refs/heads/master/bootstrap.sh)
+```
+
+Or if you've cloned this repo onto the instance:
+
+```bash
+sudo bash bootstrap.sh
+```
+
+**3. Verify**
+
+```bash
+df -h /data          # data volume mounted
+ls ~/repos ~/cache   # symlinks present
+node --version       # Node LTS via nvm
+opencode --version   # opencode-ai installed
+docker --version     # Docker running
+gh --version         # GitHub CLI
+```
+
+Bootstrap log is saved to `/var/log/bootstrap.log` if you need to debug a failure.
+
+> **Note:** The data volume (`/data`) persists across instance termination and stack
+> deletion (`DeletionPolicy: Retain`). On subsequent deploys that reuse the same
+> volume, `bootstrap.sh` is safe to re-run — it skips `mkfs` if the volume is already
+> formatted and skips duplicate fstab/symlink entries.
 
 ## Deploy Parameters
 
@@ -107,19 +152,16 @@ opencode              # OpenCode TUI
 
 ## Bootstrap Details
 
-On first launch, UserData installs:
+The `bootstrap.sh` script installs:
 
-- System packages: `git`, `tmux`, `curl`, `wget`, `unzip`, `jq`, `ripgrep`, `fd-find`, `docker`
+- System packages: `git`, `tmux`, `wget`, `unzip`, `jq`, `docker`
 - GitHub CLI (`gh`)
-- nvm (latest) + Node.js LTS — installed to `/data/nvm` so it survives reprovisioning
+- nvm + Node.js LTS — installed to `/data/nvm` so it survives reprovisioning
 - `opencode-ai` (global npm)
-- Auto-tmux attach on SSH login
+- Auto-tmux attach on SSH login (`/etc/profile.d/tmux-attach.sh`)
 
-CloudFormation uses `cfn-signal` to wait for bootstrap to complete before marking
-the stack `CREATE_COMPLETE`. Outputs (instance ID, SSM connect command) are not
-available until bootstrap has finished.
-
-Bootstrap log: `/var/log/user-data.log` on the instance.
+Bootstrap must be run manually after first deploy (see [First Boot](#first-boot--manual-bootstrap) above).
+It is safe to re-run on an existing instance.
 
 ## Design Decisions
 

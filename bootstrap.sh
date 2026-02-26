@@ -24,14 +24,19 @@ log "==> [1/7] System packages done."
 # ─── 2. Format & mount data volume ────────────────────────────────────────────
 log "==> [2/7] Setting up data volume..."
 
+# The data volume may not be attached yet — wait up to 2 minutes
 DATA_DEV=""
-for dev in /dev/nvme1n1 /dev/xvdf /dev/sdf; do
-  if [ -b "$dev" ]; then
-    DATA_DEV="$dev"
-    break
-  fi
+for i in $(seq 1 24); do
+  for dev in /dev/nvme1n1 /dev/xvdf /dev/sdf; do
+    if [ -b "$dev" ]; then
+      DATA_DEV="$dev"
+      break 2
+    fi
+  done
+  log "      Waiting for data volume... (attempt $i/24)"
+  sleep 5
 done
-[ -n "$DATA_DEV" ] || fail "Could not find data volume device"
+[ -n "$DATA_DEV" ] || fail "Could not find data volume device after 2 minutes"
 log "      Data device: $DATA_DEV"
 
 FSTYPE=$(sudo blkid -o value -s TYPE "$DATA_DEV" 2>/dev/null || true)

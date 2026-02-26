@@ -151,27 +151,9 @@ Resources:
           HttpTokens: required # IMDSv2 enforced
           HttpEndpoint: enabled
         KeyName: !If [HasKeyName, !Ref KeyName, !Ref AWS::NoValue]
-        # UserData:
-        #   Fn::Base64: !Sub |
-        #     #!/bin/bash
-        #     set -euo pipefail
-        #     exec > >(tee /var/log/user-data.log | logger -t user-data) 2>&1
-
-        #     # Install cfn-bootstrap so we can signal CFN
-        #     dnf -y install python3-pip
-        #     pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
-        #     export PATH="/usr/local/bin:$PATH"
-
-        #     /usr/local/bin/cfn-signal --exit-code 0 \
-        #       --stack "${AWS::StackName}" \
-        #       --resource WorkstationInstance \
-        #       --region "${AWS::Region}"
 
   WorkstationInstance:
     Type: AWS::EC2::Instance
-    CreationPolicy:
-      ResourceSignal:
-        Timeout: PT20M # Wait up to 20 min for cfn-signal before failing
     Properties:
       LaunchTemplate:
         LaunchTemplateId: !Ref WorkstationLaunchTemplate
