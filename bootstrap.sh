@@ -1,11 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# Ensure we are running as root
-if [ "$(id -u)" -ne 0 ]; then
-  exec sudo bash "$0" "$@"
-fi
-
+# Ensure log file is writable (create as root if needed)
+sudo touch /var/log/bootstrap.log
+sudo chmod 666 /var/log/bootstrap.log
 exec > >(tee /var/log/bootstrap.log) 2>&1
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
@@ -14,7 +12,10 @@ fail() { echo "[$(date '+%H:%M:%S')] FAILED: $*" >&2; exit 1; }
 # ─── 1. System packages ────────────────────────────────────────────────────────
 log "==> [1/7] Installing system packages..."
 sudo dnf -y update || fail "dnf update"
-sudo dnf -y install git tmux curl wget unzip jq ripgrep fd-find docker || fail "dnf install packages"
+sudo dnf -y install git tmux curl wget unzip jq docker || fail "dnf install packages"
+# ripgrep and fd are in different repos on AL2023
+sudo dnf -y install ripgrep 2>/dev/null || log "      ripgrep not available, skipping"
+sudo dnf -y install fd-find 2>/dev/null || sudo dnf -y install fd 2>/dev/null || log "      fd not available, skipping"
 
 log "==> [1/7] Installing gh CLI..."
 sudo dnf -y install 'dnf-command(config-manager)' || fail "dnf config-manager plugin"
