@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local overrides / scratch
+*.local
+*.bak
+scratch/
+
+# AWS CDK / SAM artifacts (if ever adopted)
+cdk.out/
+.aws-sam/
+
+# Secrets — never commit these
+.env
+*.pem
+*.key
+credentials

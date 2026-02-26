@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Agent Workstation EC2 (SSM-first, optional SSH), hibernation-enabled via Launch Template.
+  Separate EBS data volume persists independently of instance lifecycle.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: agent-workstation
+
+  InstanceType:
+    Type: String
+    Default: t3a.xlarge
+    AllowedValues:
+      - t3a.large
+      - t3a.xlarge
+      - m7i.large # cfn-lint W2030: stale spec; m7i is valid at deploy time
+      - m7i.xlarge # cfn-lint W2030: stale spec; m7i is valid at deploy time
+      - m7i.2xlarge # cfn-lint W2030: stale spec; m7i is valid at deploy time
+    Description: Pick based on workload. 4 vCPU/16GB (t3a.xlarge) is a good starter for 2-3 agents.
+
+  RootVolumeGiB:
+    Type: Number
+    Default: 30
+    MinValue: 20
+    Description: Root OS volume. Kept small — all workspace data lives on the separate data volume.
+
+  DataVolumeGiB:
+    Type: Number
+    Default: 120
+    MinValue: 20
+    Description: >
+      Separate data volume mounted at /data. Persists across instance termination/reprovision.
+      Houses repos, caches, agent toolchains, and nvm.
+
+  DataVolumeDevice:
+    Type: String
+    Default: /dev/sdf
+    Description: Block device name for the data volume attachment.
+
+  KeyName:
+    Type: String
+    Default: ""
+    Description: Optional. EC2 KeyPair name for SSH. Leave empty if you only use SSM.
+
+  EnableSshIngressFromMyIp:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      If true, Security Group includes an SSH ingress rule (placeholder IP).
+      Use allow-ssh-my-ip.sh to set your actual current IP.
+
+Conditions:
+  HasKeyName: !Not [!Equals [!Ref KeyName, ""]]
+  EnableSshIngress: !Equals [!Ref EnableSshIngressFromMyIp, "true"]
+
+Resources:
+  # ─── Networking ────────────────────────────────────────────────────────────
+
+  WorkstationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "${ProjectName} workstation security group"
+      # Intentionally omitting VpcId — uses default VPC.
+      # If you need a non-default VPC, add VpcId and SubnetId as parameters.
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-sg"
+
+  # Optional SSH ingress. IP is a placeholder; update with allow-ssh-my-ip.sh.
+  WorkstationSshIngressPlaceholder:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: EnableSshIngress
+    Properties:
+      GroupId: !GetAtt WorkstationSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: 22
+      ToPort: 22
+      CidrIp: 127.0.0.1/32
+      Description: "placeholder — update via allow-ssh-my-ip.sh"
+
+  # ─── IAM ───────────────────────────────────────────────────────────────────
+
+  WorkstationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-role-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Enables Session Manager, Run Command, patch manager, etc.
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  WorkstationInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref WorkstationRole]
+
+  # ─── Storage ───────────────────────────────────────────────────────────────
+
+  WorkstationDataVolume:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Retain # Volume survives stack deletion — protect your work
+    UpdateReplacePolicy: Retain
+    Properties:
+      AvailabilityZone: !GetAtt WorkstationInstance.AvailabilityZone
+      Size: !Ref DataVolumeGiB
+      VolumeType: gp3
+      Encrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-data"
+
+  WorkstationDataVolumeAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: !Ref DataVolumeDevice
+      InstanceId: !Ref WorkstationInstance
+      VolumeId: !Ref WorkstationDataVolume
+
+  # ─── Compute ───────────────────────────────────────────────────────────────
+
+  WorkstationLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${ProjectName}-lt-${AWS::StackName}"
+      LaunchTemplateData:
+        # Always resolves to latest Amazon Linux 2023 x86_64 at deploy time
+        ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+        InstanceType: !Ref InstanceType
+        SecurityGroupIds:
+          - !GetAtt WorkstationSecurityGroup.GroupId
+        IamInstanceProfile:
+          Arn: !GetAtt WorkstationInstanceProfile.Arn
+        HibernationOptions:
+          Configured: true
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: !Ref RootVolumeGiB
+              VolumeType: gp3
+              Encrypted: true
+              DeleteOnTermination: true # Root is disposable — toolchain reinstalls via UserData
+        MetadataOptions:
+          HttpTokens: required # IMDSv2 enforced
+          HttpEndpoint: enabled
+        KeyName: !If [HasKeyName, !Ref KeyName, !Ref AWS::NoValue]
+        # UserData:
+        #   Fn::Base64: !Sub |
+        #     #!/bin/bash
+        #     set -euo pipefail
+        #     exec > >(tee /var/log/user-data.log | logger -t user-data) 2>&1
+
+        #     # Install cfn-bootstrap so we can signal CFN
+        #     dnf -y install python3-pip
+        #     pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
+        #     export PATH="/usr/local/bin:$PATH"
+
+        #     /usr/local/bin/cfn-signal --exit-code 0 \
+        #       --stack "${AWS::StackName}" \
+        #       --resource WorkstationInstance \
+        #       --region "${AWS::Region}"
+
+  WorkstationInstance:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT20M # Wait up to 20 min for cfn-signal before failing
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WorkstationLaunchTemplate
+        Version: !GetAtt WorkstationLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}"
+
+Outputs:
+  InstanceId:
+    Value: !Ref WorkstationInstance
+    Description: EC2 Instance ID
+
+  DataVolumeId:
+    Value: !Ref WorkstationDataVolume
+    Description: Persistent data EBS volume ID (retained on stack deletion)
+
+  SsmConnectCommand:
+    Value: !Sub "aws ssm start-session --target ${WorkstationInstance}"
+    Description: Connect via Session Manager (no open ports required)
+
+  PublicDnsName:
+    Value: !GetAtt WorkstationInstance.PublicDnsName
+    Description: Public DNS (useful for SSH if enabled)
