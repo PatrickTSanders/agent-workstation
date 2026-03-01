@@ -43,6 +43,14 @@ Parameters:
     Default: ""
     Description: Optional. EC2 KeyPair name for SSH. Leave empty if you only use SSM.
 
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /agent-workstation/ami-id
+    Description: >
+      Encrypted AMI ID for the instance. Required for hibernation.
+      Defaults to the value stored in SSM at /agent-workstation/ami-id.
+      Run prepare-ami.sh to create and store an encrypted AL2023 AMI.
+
   EnableSshIngressFromMyIp:
     Type: String
     Default: "false"
@@ -131,8 +139,8 @@ Resources:
     Properties:
       LaunchTemplateName: !Sub "${ProjectName}-lt-${AWS::StackName}"
       LaunchTemplateData:
-        # Always resolves to latest Amazon Linux 2023 x86_64 at deploy time
-        ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+        # Encrypted AMI pulled from SSM /agent-workstation/ami-id — required for hibernation
+        ImageId: !Ref AmiId
         InstanceType: !Ref InstanceType
         SecurityGroupIds:
           - !GetAtt WorkstationSecurityGroup.GroupId

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-STACK_NAME="${1:-agent-workstation-1}"
+STACK_NAME="${1:-agent-workstation}"
 
 INSTANCE_ID="$(aws-vault exec kuba-patrick --no-session --  aws cloudformation describe-stacks --stack-name "${STACK_NAME}" \
   --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text)"

@@ -9,6 +9,8 @@ fail() { echo "[$(date '+%H:%M:%S')] FAILED: $*" >&2; exit 1; }
 # ─── 1. System packages ────────────────────────────────────────────────────────
 log "==> [1/7] Installing system packages..."
 sudo dnf -y update || fail "dnf update"
+# Explicit kernel update to get latest ENA driver (fixes hibernate resume on some instance types)
+sudo dnf -y install kernel || fail "kernel install"
 sudo dnf -y install git tmux wget unzip jq docker || fail "dnf install packages"
 # ripgrep and fd are in different repos on AL2023
 sudo dnf -y install ripgrep 2>/dev/null || log "      ripgrep not available, skipping"
@@ -138,3 +140,8 @@ sudo -u ec2-user bash -c 'source /data/nvm/nvm.sh && node --version && npm --ver
 opencode --version 2>/dev/null || sudo -u ec2-user bash -c 'source /data/nvm/nvm.sh && opencode --version'
 docker --version
 gh --version
+
+log ""
+log "Rebooting into new kernel in 5 seconds..."
+sleep 5
+sudo reboot

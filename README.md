@@ -122,11 +122,26 @@ All parameters have defaults. Override via environment variables before running 
 | `KEY_NAME` | `KeyName` | _(empty)_ | EC2 KeyPair for SSH; leave empty for SSM-only |
 | `ENABLE_SSH_INGRESS` | `EnableSshIngressFromMyIp` | `false` | Add SSH SG rule (update IP with `allow-ssh-my-ip.sh`) |
 
-Example with overrides:
+### Encrypted AMI (required for hibernation)
+
+AWS requires the AMI to be encrypted for hibernation to work. The default public AL2023
+AMI is not encrypted. Run `prepare-ami.sh` once to create an encrypted copy and store
+it in SSM — the template reads it automatically at deploy time:
 
 ```bash
-INSTANCE_TYPE=t3a.large ROOT_VOL=20 DATA_VOL=200 ./deploy.sh
+./prepare-ami.sh
+# creates encrypted AMI and stores it at SSM:/agent-workstation/ami-id
 ```
+
+Then just deploy normally — no extra env vars needed:
+
+```bash
+./deploy.sh
+```
+
+The encrypted AMI only needs to be created once per region. It does not update
+automatically when AWS releases a new AL2023 version — re-run `prepare-ami.sh`
+periodically (e.g. quarterly) and redeploy to pick up OS updates.
 
 ## Day-to-Day Workflow
 
