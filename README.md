@@ -82,7 +82,8 @@ disk (e.g. `nvme1n1`) is the data volume — unformatted and unmounted on first 
 **2. Run the bootstrap script**
 
 ```bash
-sudo bash <(curl -fsSL https://raw.githubusercontent.com/PatrickTSanders/agent-workstation/refs/heads/master/bootstrap.sh)
+sudo su
+curl -fsSL https://raw.githubusercontent.com/PatrickTSanders/agent-workstation/refs/heads/master/bootstrap.sh | bash
 ```
 
 Or if you've cloned this repo onto the instance:
